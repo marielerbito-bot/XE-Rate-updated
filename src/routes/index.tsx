@@ -16,7 +16,6 @@ const NAMES: Record<string, string> = {
 
 function formatRate(n: number) {
   if (n >= 1) return n.toFixed(4);
-  if (n >= 0.1) return n.toFixed(5);
   return n.toFixed(6);
 }
 
@@ -71,7 +70,7 @@ function Home() {
             Rate desk
           </h1>
           <p className="mt-3 max-w-md text-sm leading-relaxed text-muted">
-            Live quotes versus XE’s published rate for the previous UTC date.
+            Live quotes versus the XE chart print at 00:00 UTC (prior day’s close).
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -167,15 +166,15 @@ function Home() {
             1 USD = {formatRate(1 / selected.rate)} {selected.base}
             {" · "}
             {formatSigned(selected.change)} ({formatPct(selected.changePct)}) vs {selected.closeDate} close{" "}
-            {formatRate(selected.close)}
+            {formatRate(selected.close)} at 00:00 UTC {selected.closeAt.slice(0, 10)}
           </p>
         )}
       </section>
 
       <footer className="mt-8 text-xs leading-relaxed text-muted">
-        Source: XE mid-market feed, refreshed every 30 seconds. XE itself republishes that feed about once a
-        minute, so the digits can sit still between those prints. Yesterday’s close is XE’s table for the
-        previous UTC date and only changes once a day. Not a transfer quote.
+        Source: XE mid-market feed, refreshed every 30 seconds. The previous close is the XE chart rate at
+        00:00 UTC, which is the close of the prior UTC date. It rolls forward at the next midnight UTC. Not a
+        transfer quote.
       </footer>
     </main>
   );
@@ -210,7 +209,7 @@ function RateCard({
       <p className="mt-2 font-display text-3xl leading-none">{formatRate(quote.rate)}</p>
       <dl className="mt-3 space-y-1 text-xs">
         <div className="flex items-baseline justify-between gap-2">
-          <dt className="text-muted">Prev close</dt>
+          <dt className="text-muted">00:00 UTC close</dt>
           <dd className="font-medium text-fg">{formatRate(quote.close)}</dd>
         </div>
         <div className="flex items-baseline justify-between gap-2">
