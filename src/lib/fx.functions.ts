@@ -1,10 +1,22 @@
 import { createServerFn } from "@tanstack/react-start";
 
-const PAIRS = ["AUD", "SGD", "CHF", "EUR", "HKD"] as const;
+const PAIRS = [
+  { id: "AUDUSD", base: "AUD", quote: "USD" },
+  { id: "SGDUSD", base: "SGD", quote: "USD" },
+  { id: "CHFUSD", base: "CHF", quote: "USD" },
+  { id: "EURUSD", base: "EUR", quote: "USD" },
+  { id: "HKDUSD", base: "HKD", quote: "USD" },
+  { id: "AUDSGD", base: "AUD", quote: "SGD" },
+] as const;
+
 const XE_AUTH = "Basic bG9kZXN0YXI6cHVnc25heA==";
 
+export type PairId = (typeof PAIRS)[number]["id"];
+
 export type Quote = {
-  base: (typeof PAIRS)[number];
+  id: PairId;
+  base: string;
+  quote: string;
   rate: number;
   asOf: string | null;
   close: number;
@@ -45,9 +57,9 @@ function decodePoints(batches: Batch[]): { t: number; rate: number }[] {
 
 let closeCache: { midnight: number; rates: Record<string, number> } | null = null;
 
-async function chartClose(base: (typeof PAIRS)[number], midnight: number): Promise<number> {
+async function chartClose(base: string, quote: string, midnight: number): Promise<number> {
   const res = await fetch(
-    `https://www.xe.com/api/protected/charting-rates/?fromCurrency=${base}&toCurrency=USD&crypto=false`,
+    `https://www.xe.com/api/protected/charting-rates/?fromCurrency=${base}&toCurrency=${quote}&crypto=false`,
     {
       headers: {
         accept: "application/json",
@@ -58,15 +70,17 @@ async function chartClose(base: (typeof PAIRS)[number], midnight: number): Promi
       signal: AbortSignal.timeout(12000),
     },
   );
-  if (!res.ok) throw new Error(`XE chart ${base} ${res.status}`);
+  if (!res.ok) throw new Error(`XE chart ${base}/${quote} ${res.status}`);
   const data = (await res.json()) as { batchList: Batch[] };
   const pts = decodePoints(data.batchList);
-  if (!pts.length) throw new Error(`XE chart ${base} empty`);
+  if (!pts.length) throw new Error(`XE chart ${base}/${quote} empty`);
   let best = pts[0];
   for (const point of pts) {
     if (Math.abs(point.t - midnight) < Math.abs(best.t - midnight)) best = point;
   }
-  if (Math.abs(best.t - midnight) > 60_000) throw new Error(`XE chart ${base} missing 00:00 UTC`);
+  if (Math.abs(best.t - midnight) > 60_000) {
+    throw new Error(`XE chart ${base}/${quote} missing 00:00 UTC`);
+  }
   return best.rate;
 }
 
@@ -74,15 +88,15 @@ async function closesAtMidnight(midnight: number): Promise<Record<string, number
   if (closeCache?.midnight === midnight) return closeCache.rates;
   const rates: Record<string, number> = {};
   await Promise.all(
-    PAIRS.map(async (base) => {
-      rates[base] = await chartClose(base, midnight);
+    PAIRS.map(async (pair) => {
+      rates[pair.id] = await chartClose(pair.base, pair.quote, midnight);
     }),
   );
   closeCache = { midnight, rates };
   return rates;
 }
 
-async function liveUsdPerUnit(): Promise<{ rates: Record<string, number>; asOf: string }> {
+async function liveRates(): Promise<{ rates: Record<string, number>; asOf: string }> {
   const res = await fetch(
     "https://www.xe.com/api/protected/midmarket-converter/?from=USD&amount=1",
     {
@@ -98,11 +112,13 @@ async function liveUsdPerUnit(): Promise<{ rates: Record<string, number>; asOf: 
   if (!res.ok) throw new Error(`XE live ${res.status}`);
   const data = (await res.json()) as { timestamp: number; rates: Record<string, number> };
   const rates: Record<string, number> = {};
-  for (const base of PAIRS) {
-    const perUsd = data.rates[base];
-    if (!perUsd) throw new Error(`XE live missing ${base}`);
-    rates[base] = 1 / perUsd;
+  for (const pair of PAIRS) {
+    if (pair.quote !== "USD") continue;
+    const perUsd = data.rates[pair.base];
+    if (!perUsd) throw new Error(`XE live missing ${pair.base}`);
+    rates[pair.id] = 1 / perUsd;
   }
+  rates.AUDSGD = rates.AUDUSD / rates.SGDUSD;
   return { rates, asOf: new Date(data.timestamp).toISOString() };
 }
 
@@ -111,13 +127,15 @@ export const getXeRates = createServerFn({ method: "GET" }).handler(
     const midnight = utcMidnight();
     const closeAt = new Date(midnight).toISOString();
     const closeDate = new Date(midnight - 86_400_000).toISOString().slice(0, 10);
-    const [live, closes] = await Promise.all([liveUsdPerUnit(), closesAtMidnight(midnight)]);
-    const quotes = PAIRS.map((base) => {
-      const rate = live.rates[base];
-      const close = closes[base];
+    const [live, closes] = await Promise.all([liveRates(), closesAtMidnight(midnight)]);
+    const quotes = PAIRS.map((pair) => {
+      const rate = live.rates[pair.id];
+      const close = closes[pair.id];
       const change = rate - close;
       return {
-        base,
+        id: pair.id,
+        base: pair.base,
+        quote: pair.quote,
         rate,
         asOf: live.asOf,
         close,
@@ -131,7 +149,7 @@ export const getXeRates = createServerFn({ method: "GET" }).handler(
       quotes,
       fetchedAt: new Date().toISOString(),
       source: "xe",
-      note: "Live mid-market from XE. Previous close is the XE chart print at 00:00 UTC, which is the close of the prior UTC date.",
+      note: "Live mid-market from XE. AUD/SGD is the AUD/USD ÷ SGD/USD cross. Previous close is the XE chart print at 00:00 UTC.",
     };
   },
 );

@@ -7,11 +7,12 @@ import { getXeRates, type Quote } from "@/lib/fx.functions";
 export const Route = createFileRoute("/")({ component: Home });
 
 const NAMES: Record<string, string> = {
-  AUD: "Australian dollar",
-  SGD: "Singapore dollar",
-  CHF: "Swiss franc",
-  EUR: "Euro",
-  HKD: "Hong Kong dollar",
+  AUDUSD: "Australian dollar",
+  SGDUSD: "Singapore dollar",
+  CHFUSD: "Swiss franc",
+  EURUSD: "Euro",
+  HKDUSD: "Hong Kong dollar",
+  AUDSGD: "Australian dollar",
 };
 
 function formatRate(n: number) {
@@ -37,7 +38,7 @@ function Home() {
   });
 
   const quotes = query.data?.quotes ?? [];
-  const [base, setBase] = useState("EUR");
+  const [base, setBase] = useState("EURUSD");
   const [amount, setAmount] = useState("1000");
   const [history, setHistory] = useState<Record<string, number[]>>({});
 
@@ -46,15 +47,15 @@ function Home() {
     setHistory((prev) => {
       const next = { ...prev };
       for (const q of quotes) {
-        const series = next[q.base] ? [...next[q.base]] : [];
+        const series = next[q.id] ? [...next[q.id]] : [];
         if (series[series.length - 1] !== q.rate) series.push(q.rate);
-        next[q.base] = series.slice(-16);
+        next[q.id] = series.slice(-16);
       }
       return next;
     });
   }, [quotes]);
 
-  const selected = quotes.find((q) => q.base === base);
+  const selected = quotes.find((q) => q.id === base);
   const usd = useMemo(() => {
     const n = Number(amount.replace(/,/g, ""));
     if (!selected || !Number.isFinite(n)) return null;
@@ -99,18 +100,18 @@ function Home() {
         </p>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {quotes.length === 0 && query.isLoading
-          ? ["AUD", "SGD", "CHF", "EUR", "HKD"].map((code) => (
+          ? ["AUDUSD", "SGDUSD", "CHFUSD", "EURUSD", "HKDUSD", "AUDSGD"].map((code) => (
               <div key={code} className="h-40 rounded-2xl border border-border bg-surface" />
             ))
           : quotes.map((q) => (
               <RateCard
-                key={q.base}
+                key={q.id}
                 quote={q}
-                series={[q.close, ...(history[q.base] ?? [q.rate])]}
-                active={q.base === base}
-                onSelect={() => setBase(q.base)}
+                series={[q.close, ...(history[q.id] ?? [q.rate])]}
+                active={q.id === base}
+                onSelect={() => setBase(q.id)}
               />
             ))}
       </section>
@@ -118,7 +119,7 @@ function Home() {
       <section className="mt-8 rounded-2xl border border-border bg-surface p-5 sm:p-6">
         <div className="mb-4 flex items-center gap-2 text-sm text-muted">
           <ArrowLeftRight className="size-4 text-primary" />
-          Convert into USD
+          Convert into {selected?.quote ?? "USD"}
         </div>
         <div className="grid gap-4 sm:grid-cols-[1fr_auto_1fr] sm:items-end">
           <label className="block">
@@ -139,7 +140,7 @@ function Home() {
               >
                 {Object.keys(NAMES).map((code) => (
                   <option key={code} value={code} className="bg-surface">
-                    {code}
+                    {code.slice(0, 3)}/{code.slice(3)}
                   </option>
                 ))}
               </select>
@@ -147,7 +148,7 @@ function Home() {
           </label>
           <span className="hidden pb-3 text-muted sm:block">=</span>
           <div>
-            <span className="text-xs text-muted">US dollars</span>
+            <span className="text-xs text-muted">{selected?.quote === "SGD" ? "Singapore dollars" : "US dollars"}</span>
             <p className="mt-1 flex h-12 items-center font-display text-3xl text-fg">
               {usd == null
                 ? "—"
@@ -160,10 +161,10 @@ function Home() {
         </div>
         {selected && (
           <p className="mt-4 text-xs text-muted">
-            1 {selected.base} = {formatRate(selected.rate)} USD
+            1 {selected.base} = {formatRate(selected.rate)} {selected.quote}
             {selected.asOf ? ` · mid-market at ${selected.asOf}` : ""}
             {" · "}
-            1 USD = {formatRate(1 / selected.rate)} {selected.base}
+            1 {selected.quote} = {formatRate(1 / selected.rate)} {selected.base}
             {" · "}
             {formatSigned(selected.change)} ({formatPct(selected.changePct)}) vs {selected.closeDate} close{" "}
             {formatRate(selected.close)} at 00:00 UTC {selected.closeAt.slice(0, 10)}
@@ -201,7 +202,9 @@ function RateCard({
       }`}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-semibold">{quote.base}/USD</span>
+        <span className="text-sm font-semibold">
+          {quote.base}/{quote.quote}
+        </span>
         <span className={`text-xs font-medium ${up ? "text-primary" : "text-down"}`}>
           {formatPct(quote.changePct)}
         </span>
